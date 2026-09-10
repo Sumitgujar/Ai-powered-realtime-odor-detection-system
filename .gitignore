@@ -1,0 +1,34 @@
+# Secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# Node / Vite
+node_modules/
+dist/
+.vite/
+
+# PlatformIO
+firmware/.pio/
+
+# ML artifacts and local data
+ml/models/*
+!ml/models/.gitkeep
+ml/data/real/*
+!ml/data/real/.gitkeep
+ml/data/simulated/*
+!ml/data/simulated/.gitkeep
+
+# OS / editors
+.DS_Store
+.vscode/
+.idea/
