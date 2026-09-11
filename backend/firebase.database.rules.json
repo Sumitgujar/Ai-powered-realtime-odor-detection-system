@@ -1,0 +1,13 @@
+{
+  "rules": {
+    "sensor_readings": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$device_id": {
+        "$reading_id": {
+          ".validate": "newData.hasChildren(['device_id', 'timestamp', 'latitude', 'longitude', 'bme_gas', 'mq135', 'mq136', 'mq3', 'temperature', 'humidity', 'pressure', 'is_simulated']) && newData.child('device_id').val() === $device_id && newData.child('is_simulated').isBoolean()"
+        }
+      }
+    }
+  }
+}

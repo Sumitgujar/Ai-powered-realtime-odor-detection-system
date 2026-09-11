@@ -28,6 +28,12 @@ ESP32 sensors → Firebase Realtime Database → FastAPI/Python ML
 
 Copy each `.env.example` file to `.env` in the same folder and add local credentials. Never commit `.env` files, Firebase credentials, API keys, or trained models containing sensitive information.
 
+## Data ingestion
+
+The backend now includes a validated sensor schema, Firebase Realtime Database service, simulated-data publisher, and read-back verification script. Every simulator record sets `is_simulated` to `true`.
+
+From `backend/`, copy `.env.example` to `.env`, provide your Firebase project values and service-account file path, install `requirements.txt`, then run `python simulator.py` or `python verify_ingestion.py`. Apply `firebase.database.rules.json` in the Firebase console or Firebase CLI before using client-authenticated access.
+
 ## Current scope
 
-This repository contains architecture and placeholder files only. Feature implementation and Docker configuration are intentionally deferred until the application works locally.
+The data-ingestion layer is implemented. ML, frontend features, and Docker configuration remain intentionally deferred.
