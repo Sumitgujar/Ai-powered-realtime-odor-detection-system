@@ -13,10 +13,10 @@
 #define FIREBASE_USER_PASSWORD ""
 #define FIREBASE_SENSOR_ROOT "/sensor_readings"
 
-// Device identity. Leave empty to derive a stable ID from the ESP32 MAC address.
+// Device identity. Leave empty to derive a stable ID from the ESP8266 chip ID.
 #define DEVICE_ID_OVERRIDE ""
 #define DEVICE_ID_PREFIX "odor-node"
-#define FIRMWARE_VERSION "0.3.0"
+#define FIRMWARE_VERSION "0.4.0-esp8266"
 
 // Sampling and reconnect timing
 #define SAMPLE_INTERVAL_MS 10000UL
@@ -25,37 +25,39 @@
 #define FIREBASE_LOG_INTERVAL_MS 15000UL
 #define ADC_SAMPLE_COUNT 16
 
-// ESP32 ADC1 pins. ADC2 pins must not be used while Wi-Fi is active.
-#define MQ135_PIN 34
-#define MQ136_PIN 35
-#define MQ3_PIN 32
+// NodeMCU ESP8266 analog input. Do not add another analog pin.
+#define MQ135_PIN A0
+// ESP8266 Arduino analogRead(A0) returns 0..1023.
+#define MQ135_ADC_MAX_COUNT 1023.0f
+#define MQ135_SCALE 1.0f
+#define MQ135_OFFSET 0.0f
 
-// BME688 I2C pins/address
-#define I2C_SDA_PIN 21
-#define I2C_SCL_PIN 22
-#define BME688_PRIMARY_ADDRESS 0x76
-#define BME688_SECONDARY_ADDRESS 0x77
+// PIR input. D5 is GPIO14 and is not used by the I2C pins below.
+#define PIR_PIN 14
+#define PIR_ACTIVE_HIGH true
 
-// Optional GPS on UART2. Set GPS_ENABLED to true when a module is connected.
-#define GPS_ENABLED false
-#define GPS_RX_PIN 16
-#define GPS_TX_PIN 17
-#define GPS_BAUD 9600
-#define GPS_FIX_MAX_AGE_MS 10000UL
+// BME680/BME68x I2C pins/address.
+// NodeMCU D2=GPIO4 is SDA; D1=GPIO5 is SCL.
+#define I2C_SDA_PIN 4
+#define I2C_SCL_PIN 5
+#define BME680_PRIMARY_ADDRESS 0x76
+#define BME680_SECONDARY_ADDRESS 0x77
 
-// Used when GPS is disabled or a current fix is unavailable.
+// Static location retained only for compatibility with the existing Firebase
+// and FastAPI contract. No GPS hardware or GPS library is used.
 #define DEFAULT_LATITUDE 18.5204
 #define DEFAULT_LONGITUDE 73.8567
 
-// Basic calibration: calibrated = raw * scale + offset.
-#define MQ135_SCALE 1.0f
-#define MQ135_OFFSET 0.0f
-#define MQ136_SCALE 1.0f
-#define MQ136_OFFSET 0.0f
-#define MQ3_SCALE 1.0f
-#define MQ3_OFFSET 0.0f
+// BME calibration: calibrated = raw * scale + offset.
 #define BME_GAS_SCALE 1.0f
 #define BME_GAS_OFFSET 0.0f
 #define TEMPERATURE_OFFSET_C 0.0f
 #define HUMIDITY_OFFSET_PERCENT 0.0f
 #define PRESSURE_OFFSET_HPA 0.0f
+
+// The existing Firebase/FastAPI contract still requires mq136, mq3, latitude,
+// and longitude. These are compatibility values only; no MQ136, MQ3, or GPS
+// hardware is read by this firmware. Remove them only after the backend schema
+// is migrated in a later, explicitly approved change.
+#define LEGACY_MQ136_COMPAT_VALUE 0.0f
+#define LEGACY_MQ3_COMPAT_VALUE 0.0f
