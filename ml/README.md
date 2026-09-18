@@ -1,24 +1,89 @@
-# Odor classification pipeline
+# Odor classification pipelines
 
-This package is independent of the React application. It validates the canonical sensor dataset, engineers environmental compensation features, imputes missing sensor values, normalizes features, compares classifiers, trains intensity and anomaly models, and persists one artifact with `joblib`.
+This package now contains two explicitly separated pipelines:
 
-## Dataset schema
+- **Legacy schema v1** — retained for historical ESP32 records and any existing legacy artifact.
+- **Schema v2** — for the NodeMCU + MQ135 + BME680/BME68x + PIR configuration.
 
-`timestamp, device_id, mq135, mq136, mq3, bme_gas, temperature, humidity, pressure, latitude, longitude, odor_label, intensity_label`
+Do not compare schema-v1 and schema-v2 metrics as if they were the same model.
 
-- Put measured datasets only in `data/real/`.
-- Put generated datasets only in `data/simulated/`.
-- `sample_simulated_sensor_data.csv` is synthetic and intended only for development and testing.
+## Schema v2 dataset
 
-## Run
+Place labeled schema-v2 datasets in one of these directories:
+
+```text
+ml/data/real_v2/
+ml/data/simulated_v2/
+```
+
+Required columns:
+
+```text
+timestamp,deviceId,mq135,temperature,humidity,pressure,pir,schemaVersion,odor_label,intensity_label
+```
+
+Optional column:
+
+```text
+bme_gas
+```
+
+`bme_gas` is included only when the actual BME680/BME68x hardware provides a usable gas reading. Missing BME gas data is not replaced with a fabricated value.
+
+The legacy sample dataset remains under `ml/data/simulated/` and is not valid schema-v2 training data.
+
+## Schema-v2 feature policy
+
+The new pipeline uses:
+
+- `mq135`
+- `temperature`
+- `humidity`
+- `pressure`
+- optional `bme_gas`
+- temperature/humidity index
+- absolute humidity proxy
+- environment-compensated MQ135
+- optional environment-compensated BME gas
+
+It does not use:
+
+- MQ136
+- MQ3
+- GPS latitude/longitude
+- removed-sensor ratios
+- BME688-only gas-scanner features
+
+PIR is retained as context/presence data and is excluded from odor-model features by default. The `--include-pir` option exists only for an explicit comparison after evaluation justifies it.
+
+## Train the new model
+
+Install dependencies:
 
 ```bash
 python -m pip install -r requirements.txt
-python generate_sample_data.py
-python -m unittest discover -s tests -v
-python -m src.train
 ```
 
-Use `src.prediction.OdorPredictor` or `predict_sensor_reading` to obtain `odor_class`, `intensity`, `confidence`, and `is_anomaly` from one sensor-reading mapping.
+After supplying a real labeled schema-v2 dataset:
 
-> Metrics produced from the included simulated dataset are development checks only and must never be presented as real-world accuracy.
+```bash
+python -m unittest discover -s tests -v
+python -m src.train_new \
+  --dataset ml/data/real_v2/your_labeled_data.csv \
+  --dataset-kind real_v2 \
+  --output ml/models/odor_pipeline_v2.joblib
+```
+
+For development-only simulated data, use `simulated_v2` only when a clearly labeled, user-approved simulated dataset exists. This repository does not fabricate one.
+
+The artifact records `schemaVersion`, exact feature ordering, whether BME gas was included, whether PIR was included, metrics, dataset kind, and an evaluation notice. The new artifact is intentionally not compatible with the legacy predictor.
+
+## Inference
+
+Use `src.new_prediction.NewOdorPredictor` with `odor_pipeline_v2.joblib`. It rejects schema-v1 payloads and does not fill missing removed-sensor fields.
+
+The existing `src.prediction.OdorPredictor` remains the legacy predictor until FastAPI is explicitly migrated in a later change.
+
+## Retraining requirement
+
+A legacy model's accuracy, confidence, intensity, or anomaly behavior does not transfer to the new sensor configuration. A new labeled dataset and new model artifact are required before schema-v2 production inference.
