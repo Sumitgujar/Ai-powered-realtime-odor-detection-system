@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from app.core.config import Settings
 from app.models.sensor_data import SensorReading
+from app.services.sensor_schema import (
+    NEW_SCHEMA_VERSION,
+    schema_version_for,
+    validate_new_sensor_payload,
+)
 
 ReferenceFactory = Callable[[str], Any]
 
@@ -69,6 +74,35 @@ class FirebaseSensorService:
             raise RuntimeError("Firebase did not return a key for the sensor reading")
         return f"{validated.device_id}/{created_ref.key}"
 
+    def write_new_sensor_payload(self, payload: Mapping[str, Any]) -> str:
+        """Write a schema-v2 record without adding legacy fields."""
+        validated = validate_new_sensor_payload(payload)
+        device_id = validated["deviceId"]
+        try:
+            created_ref = self._root.child(device_id).push(validated)
+        except Exception as exc:
+            raise RuntimeError(f"Failed to write new sensor reading: {exc}") from exc
+        if not getattr(created_ref, "key", None):
+            raise RuntimeError("Firebase did not return a key for the new sensor reading")
+        return f"{device_id}/{created_ref.key}"
+
+    def read_sensor_record(self, reading_id: str) -> dict[str, Any]:
+        """Read a raw record without converting or fabricating removed fields."""
+        device_id, key = self._split_record_id(reading_id)
+        try:
+            payload = self._root.child(device_id).child(key).get()
+        except Exception as exc:
+            raise RuntimeError(f"Failed to read sensor record: {exc}") from exc
+        if payload is None:
+            raise LookupError(f"Sensor reading not found: {reading_id}")
+        if not isinstance(payload, dict):
+            raise ValueError("Firebase returned an unexpected sensor-record shape")
+        return dict(payload)
+
+    def read_new_sensor_payload(self, reading_id: str) -> dict[str, Any]:
+        payload = self.read_sensor_record(reading_id)
+        return validate_new_sensor_payload(payload)
+
     def read_sensor_reading(self, reading_id: str) -> SensorReading:
         device_id, key = self._split_record_id(reading_id)
         try:
@@ -84,7 +118,10 @@ class FirebaseSensorService:
         return [SensorReading.from_dict(self._without_ids(record)) for record in records]
 
     def list_sensor_data(
-        self, device_id: str | None = None, limit: int = 100
+        self,
+        device_id: str | None = None,
+        limit: int = 100,
+        schema_version: int | None = None,
     ) -> list[dict[str, Any]]:
         self._validate_limit(limit)
         try:
@@ -105,6 +142,14 @@ class FirebaseSensorService:
                     records.extend(
                         self._flatten_device_records(current_device, device_records or {})
                     )
+            if schema_version is not None:
+                if schema_version not in (1, NEW_SCHEMA_VERSION):
+                    raise ValueError("schema_version must be 1 or 2")
+                records = [
+                    record
+                    for record in records
+                    if schema_version_for(record) == schema_version
+                ]
             return sorted(records, key=lambda item: item.get("timestamp", ""), reverse=True)[:limit]
         except (ValueError, TypeError):
             raise
