@@ -1,1 +1,32 @@
-/* Tailwind entry point placeholder. */
+:root { font-family: Inter, system-ui, sans-serif; color: #17211b; background: #f4f7f5; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, select { font: inherit; }
+.app-shell { width: min(1180px, calc(100% - 32px)); margin: 0 auto; padding: 40px 0 64px; }
+.header { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; }
+h1 { margin: 4px 0 8px; font-size: clamp(2rem, 5vw, 3.4rem); letter-spacing: -0.04em; }
+h2 { font-size: 1rem; margin: 0 0 8px; }
+p { color: #5b675f; margin: 0; }
+.eyebrow { color: #16734a; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; font-size: .75rem; }
+.status { padding: 10px 14px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
+.healthy { background: #dff6e9; color: #11623f; }
+.degraded { background: #fff0d5; color: #895608; }
+.toolbar, .panel, .notice, .metric-grid article { background: #fff; border: 1px solid #dce5df; border-radius: 16px; box-shadow: 0 8px 24px rgba(35, 65, 48, .05); }
+.toolbar { margin: 28px 0 20px; padding: 16px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.toolbar label { font-weight: 700; }
+.toolbar select { padding: 9px 34px 9px 10px; border: 1px solid #bdc9c1; border-radius: 8px; }
+.toolbar span { margin-left: auto; color: #66736b; }
+.metric-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.metric-grid article { padding: 20px; }
+.metric-grid span { display: block; color: #66736b; margin-bottom: 10px; }
+.metric-grid strong { font-size: 1.55rem; }
+.panel { margin-top: 16px; padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.history { display: block; }
+.notice { padding: 20px; margin-top: 16px; }
+.error { color: #9d2222; border-color: #f0b8b8; background: #fff7f7; }
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; min-width: 820px; }
+th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid #e7ede9; font-size: .9rem; }
+th { color: #526158; }
+@media (max-width: 760px) { .header { flex-direction: column; } .metric-grid { grid-template-columns: 1fr 1fr; } .panel { grid-template-columns: 1fr; } .toolbar span { margin-left: 0; width: 100%; } }
+@media (max-width: 460px) { .metric-grid { grid-template-columns: 1fr; } }
