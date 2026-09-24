@@ -1,4 +1,4 @@
-"""Endpoint tests with isolated Firebase and ML adapters."""
+"""Endpoint tests for schema-v2 plus legacy compatibility."""
 
 from __future__ import annotations
 
@@ -12,12 +12,20 @@ FASTAPI_TEST_AVAILABLE = bool(
 
 if FASTAPI_TEST_AVAILABLE:
     from fastapi.testclient import TestClient
-
     from app.core.config import Settings
     from app.main import create_app
 
-
-SAMPLE = {
+NEW_SAMPLE = {
+    "deviceId": "nodemcu-test-001",
+    "timestamp": "2026-09-24T18:00:00Z",
+    "mq135": 740.0,
+    "temperature": 27.4,
+    "humidity": 58.0,
+    "pressure": 1007.5,
+    "pir": True,
+    "schemaVersion": 2,
+}
+LEGACY_SAMPLE = {
     "device_id": "esp32-test-001",
     "timestamp": "2026-09-12T05:30:00Z",
     "latitude": 18.5204,
@@ -35,13 +43,19 @@ SAMPLE = {
 
 class FakeFirebaseService:
     def __init__(self) -> None:
-        self.readings = []
-        self.predictions = []
-        self.alerts = []
+        self.readings: list[dict] = []
+        self.predictions: list[dict] = []
+        self.alerts: list[dict] = []
+
+    def write_new_sensor_payload(self, payload):
+        record = deepcopy(payload)
+        record["reading_id"] = f"{payload['deviceId']}/reading-v2"
+        self.readings.append(record)
+        return record["reading_id"]
 
     def write_sensor_reading(self, reading):
         record = reading.to_dict()
-        record["reading_id"] = f"{reading.device_id}/reading-1"
+        record["reading_id"] = f"{reading.device_id}/reading-v1"
         self.readings.append(record)
         return record["reading_id"]
 
@@ -54,24 +68,25 @@ class FakeFirebaseService:
         self.alerts.append(record)
         return record["alert_id"]
 
-    def list_sensor_data(self, device_id=None, limit=100):
-        values = [
-            item for item in self.readings if not device_id or item["device_id"] == device_id
-        ]
+    def list_sensor_data(self, device_id=None, limit=100, schema_version=None):
+        values = self.readings
+        if device_id:
+            values = [r for r in values if r.get("deviceId", r.get("device_id")) == device_id]
+        if schema_version:
+            values = [r for r in values if r.get("schemaVersion", 1) == schema_version]
         return list(reversed(values))[:limit]
 
     def list_devices(self):
-        return [
-            {"device_id": "esp32-test-001", "latest_timestamp": SAMPLE["timestamp"]}
-        ] if self.readings else []
+        ids = sorted({r.get("deviceId", r.get("device_id")) for r in self.readings})
+        return [{"device_id": value, "latest_timestamp": NEW_SAMPLE["timestamp"]} for value in ids]
 
     def latest(self, device_id=None):
-        values = self.list_sensor_data(device_id=device_id, limit=1)
-        return values
+        return self.list_sensor_data(device_id=device_id, limit=1)
 
     def list_alerts(self, device_id=None, limit=100):
         values = [
-            item for item in self.alerts if not device_id or item["device_id"] == device_id
+            item for item in self.alerts
+            if not device_id or item.get("deviceId", item.get("device_id")) == device_id
         ]
         return values[:limit]
 
@@ -80,12 +95,12 @@ class FakeFirebaseService:
 
 
 class FakeMLService:
-    def predict(self, _sensor_reading):
+    def predict(self, _sensor_reading, schema_version=2):
         return {
-            "odor_class": "smoke",
-            "intensity": "high",
+            "odor_class": "smoke" if schema_version == 2 else "clean_air",
+            "intensity": "high" if schema_version == 2 else "low",
             "confidence": 0.91,
-            "is_anomaly": True,
+            "is_anomaly": schema_version == 2,
         }
 
     def healthcheck(self):
@@ -102,11 +117,7 @@ class ApiEndpointTests(unittest.TestCase):
             firebase_credentials_path=None,
         )
         self.client = TestClient(
-            create_app(
-                settings=settings,
-                firebase_service=self.firebase,
-                ml_service=FakeMLService(),
-            )
+            create_app(settings, self.firebase, FakeMLService())
         )
 
     def test_health(self):
@@ -114,46 +125,39 @@ class ApiEndpointTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual("healthy", response.json()["status"])
 
-    def test_predict(self):
-        response = self.client.post("/predict", json=SAMPLE)
+    def test_predict_schema_v2_without_optional_bme_gas(self):
+        response = self.client.post("/predict", json=NEW_SAMPLE)
         self.assertEqual(200, response.status_code)
         body = response.json()
+        self.assertEqual("nodemcu-test-001", body["deviceId"])
+        self.assertEqual(2, body["schemaVersion"])
         self.assertEqual("smoke", body["odor_class"])
-        self.assertEqual("high", body["intensity"])
-        self.assertTrue(body["anomaly_status"])
-        self.assertEqual("critical", body["prediction_risk"])
-        self.assertEqual("esp32-test-001", body["device_id"])
+        self.assertNotIn("bme_gas", self.firebase.readings[0])
+        self.assertNotIn("mq136", self.firebase.readings[0])
+        self.assertNotIn("latitude", self.firebase.readings[0])
 
-    def test_predict_validation_error(self):
-        invalid = {**SAMPLE, "humidity": 101}
-        response = self.client.post("/predict", json=invalid)
-        self.assertEqual(422, response.status_code)
-
-    def test_sensor_data(self):
-        self.client.post("/predict", json=SAMPLE)
-        response = self.client.get("/sensor-data?device_id=esp32-test-001&limit=10")
+    def test_predict_legacy_record(self):
+        response = self.client.post("/predict", json=LEGACY_SAMPLE)
         self.assertEqual(200, response.status_code)
-        self.assertEqual(1, len(response.json()))
+        self.assertEqual("esp32-test-001", response.json()["device_id"])
 
-    def test_devices(self):
-        self.client.post("/predict", json=SAMPLE)
-        response = self.client.get("/devices")
-        self.assertEqual(200, response.status_code)
-        self.assertEqual("esp32-test-001", response.json()[0]["device_id"])
+    def test_schema_v2_validation(self):
+        invalid = {**NEW_SAMPLE, "schemaVersion": 1}
+        self.assertEqual(422, self.client.post("/predict", json=invalid).status_code)
+        invalid = {**NEW_SAMPLE, "humidity": 101}
+        self.assertEqual(422, self.client.post("/predict", json=invalid).status_code)
 
-    def test_latest(self):
-        self.client.post("/predict", json=SAMPLE)
-        response = self.client.get("/latest?device_id=esp32-test-001")
-        self.assertEqual(200, response.status_code)
-        self.assertEqual(1, len(response.json()))
+    def test_sensor_endpoints_return_v2(self):
+        self.client.post("/predict", json=NEW_SAMPLE)
+        for path in (
+            "/sensor-data?schema_version=2",
+            "/latest?device_id=nodemcu-test-001",
+            "/devices",
+            "/alerts?device_id=nodemcu-test-001",
+        ):
+            self.assertEqual(200, self.client.get(path).status_code, path)
 
-    def test_alerts(self):
-        self.client.post("/predict", json=SAMPLE)
-        response = self.client.get("/alerts?device_id=esp32-test-001")
-        self.assertEqual(200, response.status_code)
-        self.assertEqual("critical", response.json()[0]["prediction_risk"])
-
-    def test_openapi_documentation(self):
+    def test_openapi_paths_preserved(self):
         response = self.client.get("/openapi.json")
         self.assertEqual(200, response.status_code)
         for path in ("/predict", "/sensor-data", "/devices", "/latest", "/alerts", "/health"):

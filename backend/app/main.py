@@ -34,8 +34,8 @@ def create_app(
         title=settings.app_name,
         version=settings.app_version,
         description=(
-            "Bridge API for validated ESP32 sensor readings, Firebase Realtime "
-            "Database access, and odor/intensity/anomaly predictions."
+            "Bridge API for versioned sensor readings, Firebase Realtime Database "
+            "access, and schema-matched odor/intensity/anomaly predictions."
         ),
         docs_url="/docs",
         redoc_url="/redoc",
@@ -58,9 +58,12 @@ def create_app(
             logger.warning("Firebase unavailable at startup: %s", exc)
 
     ml_initialization_error = None
-    if ml_service is None and settings.ml_model_path:
+    if ml_service is None and (settings.ml_model_path or settings.legacy_ml_model_path):
         try:
-            ml_service = MLPredictionService(settings.ml_model_path)
+            ml_service = MLPredictionService(
+                settings.ml_model_path,
+                settings.legacy_ml_model_path,
+            )
         except Exception as exc:
             ml_initialization_error = str(exc)
             logger.warning("ML model unavailable at startup: %s", exc)

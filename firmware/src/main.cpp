@@ -1,11 +1,10 @@
 #include <Arduino.h>
+#include <ESP8266WiFi.h>
 #include <Wire.h>
-#include <WiFi.h>
 #include <time.h>
 
 #include <Adafruit_BME680.h>
 #include <Firebase_ESP_Client.h>
-#include <TinyGPSPlus.h>
 
 #include "addons/TokenHelper.h"
 #include "calibration.h"
@@ -19,8 +18,6 @@
 
 namespace {
 Adafruit_BME680 bme(&Wire);
-TinyGPSPlus gps;
-HardwareSerial gpsSerial(2);
 FirebaseData firebaseData;
 FirebaseAuth firebaseAuth;
 FirebaseConfig firebaseConfig;
@@ -41,11 +38,8 @@ String buildDeviceId() {
   if (strlen(DEVICE_ID_OVERRIDE) > 0) {
     return String(DEVICE_ID_OVERRIDE);
   }
-  const uint64_t chipId = ESP.getEfuseMac();
-  char suffix[13];
-  snprintf(suffix, sizeof(suffix), "%04X%08X",
-           static_cast<uint16_t>(chipId >> 32),
-           static_cast<uint32_t>(chipId));
+  char suffix[9];
+  snprintf(suffix, sizeof(suffix), "%08X", ESP.getChipId());
   String result = String(DEVICE_ID_PREFIX) + "-" + suffix;
   result.toLowerCase();
   return result;
@@ -71,8 +65,8 @@ void connectWiFiIfNeeded() {
     return;
   }
   lastWiFiAttemptAt = now;
-  Serial.printf("[wifi] Connecting to %s\n", WIFI_SSID);
-  WiFi.disconnect(false, false);
+  Serial.printf("[wifi] Connecting to %s\\n", WIFI_SSID);
+  WiFi.disconnect();
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 }
 
@@ -101,10 +95,10 @@ String utcTimestamp(bool &valid) {
 
 bool initializeBme() {
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
-  bmeAvailable = bme.begin(BME688_PRIMARY_ADDRESS) ||
-                 bme.begin(BME688_SECONDARY_ADDRESS);
+  bmeAvailable = bme.begin(BME680_PRIMARY_ADDRESS) ||
+                 bme.begin(BME680_SECONDARY_ADDRESS);
   if (!bmeAvailable) {
-    Serial.println("[sensor] BME688 not found at 0x76 or 0x77");
+    Serial.println("[sensor] BME680/BME68x not found at 0x76 or 0x77");
     return false;
   }
   bme.setTemperatureOversampling(BME680_OS_8X);
@@ -112,7 +106,7 @@ bool initializeBme() {
   bme.setPressureOversampling(BME680_OS_4X);
   bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
   bme.setGasHeater(320, 150);
-  Serial.println("[sensor] BME688 initialized");
+  Serial.println("[sensor] BME680/BME68x initialized");
   return true;
 }
 
@@ -128,36 +122,18 @@ void retrySensorsIfNeeded() {
   initializeBme();
 }
 
-void initializeGps() {
-  if (GPS_ENABLED) {
-    gpsSerial.begin(GPS_BAUD, SERIAL_8N1, GPS_RX_PIN, GPS_TX_PIN);
-    Serial.println("[gps] UART2 initialized");
-  } else {
-    Serial.println("[gps] Disabled; using configured location");
-  }
-}
-
-void serviceGps() {
-  if (!GPS_ENABLED) {
-    return;
-  }
-  while (gpsSerial.available() > 0) {
-    gps.encode(gpsSerial.read());
-  }
-}
-
-float readAveragedAdc(uint8_t pin) {
+float readAveragedMq135() {
   uint32_t total = 0;
   for (uint8_t index = 0; index < ADC_SAMPLE_COUNT; ++index) {
-    total += static_cast<uint32_t>(analogRead(pin));
+    total += static_cast<uint32_t>(analogRead(MQ135_PIN));
     delay(2);
   }
   return static_cast<float>(total) / static_cast<float>(ADC_SAMPLE_COUNT);
 }
 
-void markSaturation(float value, SensorError error, uint32_t &errorMask) {
-  if (value <= 2.0f || value >= 4093.0f) {
-    errorMask |= static_cast<uint32_t>(error);
+void markMq135Saturation(float value, uint32_t &errorMask) {
+  if (value <= 1.0f || value >= MQ135_ADC_MAX_COUNT - 1.0f) {
+    errorMask |= ERROR_MQ135_SATURATED;
   }
 }
 
@@ -165,6 +141,7 @@ SensorReading collectReading() {
   SensorReading reading;
   reading.deviceId = deviceId;
   reading.sequence = ++readingSequence;
+  reading.pirMotion = digitalRead(PIR_PIN) == (PIR_ACTIVE_HIGH ? HIGH : LOW);
 
   bool timestampValid = false;
   reading.timestamp = utcTimestamp(timestampValid);
@@ -174,25 +151,20 @@ SensorReading collectReading() {
     return reading;
   }
 
-  const float mq135Raw = readAveragedAdc(MQ135_PIN);
-  const float mq136Raw = readAveragedAdc(MQ136_PIN);
-  const float mq3Raw = readAveragedAdc(MQ3_PIN);
-  reading.mq135 = applyCalibration(mq135Raw, MQ135_SCALE, MQ135_OFFSET, 0.0f, 4095.0f);
-  reading.mq136 = applyCalibration(mq136Raw, MQ136_SCALE, MQ136_OFFSET, 0.0f, 4095.0f);
-  reading.mq3 = applyCalibration(mq3Raw, MQ3_SCALE, MQ3_OFFSET, 0.0f, 4095.0f);
-  markSaturation(reading.mq135, ERROR_MQ135_SATURATED, reading.errorMask);
-  markSaturation(reading.mq136, ERROR_MQ136_SATURATED, reading.errorMask);
-  markSaturation(reading.mq3, ERROR_MQ3_SATURATED, reading.errorMask);
+  const float mq135Raw = readAveragedMq135();
+  reading.mq135 = applyCalibration(
+      mq135Raw, MQ135_SCALE, MQ135_OFFSET, 0.0f, MQ135_ADC_MAX_COUNT);
+  markMq135Saturation(reading.mq135, reading.errorMask);
 
   if (!bmeAvailable) {
     reading.errorMask |= ERROR_BME_UNAVAILABLE;
-    Serial.println("[sensor] BME688 unavailable; sample not published");
+    Serial.println("[sensor] BME680/BME68x unavailable; sample not published");
     return reading;
   }
   if (!bme.performReading()) {
     bmeAvailable = false;
     reading.errorMask |= ERROR_BME_READ;
-    Serial.println("[sensor] BME688 read failed; sample not published");
+    Serial.println("[sensor] BME680/BME68x read failed; sample not published");
     return reading;
   }
 
@@ -204,21 +176,6 @@ SensorReading collectReading() {
       bme.pressure / 100.0f, 1.0f, PRESSURE_OFFSET_HPA, 300.0f, 1100.0f);
   reading.bmeGas = applyCalibration(
       bme.gas_resistance, BME_GAS_SCALE, BME_GAS_OFFSET, 0.0f, 10000000.0f);
-
-  if (GPS_ENABLED && gps.location.isValid() &&
-      gps.location.age() <= GPS_FIX_MAX_AGE_MS) {
-    reading.latitude = gps.location.lat();
-    reading.longitude = gps.location.lng();
-    reading.gpsAvailable = true;
-  } else {
-    reading.latitude = DEFAULT_LATITUDE;
-    reading.longitude = DEFAULT_LONGITUDE;
-    reading.gpsAvailable = false;
-    if (GPS_ENABLED) {
-      reading.errorMask |= ERROR_GPS_NO_FIX;
-    }
-  }
-
   reading.valid = true;
   return reading;
 }
@@ -241,18 +198,15 @@ void initializeFirebaseIfNeeded() {
 
 FirebaseJson readingToJson(const SensorReading &reading) {
   FirebaseJson json;
-  json.set("device_id", reading.deviceId);
+  json.set("deviceId", reading.deviceId);
   json.set("timestamp", reading.timestamp);
-  json.set("latitude", reading.latitude);
-  json.set("longitude", reading.longitude);
-  json.set("bme_gas", reading.bmeGas);
   json.set("mq135", reading.mq135);
-  json.set("mq136", reading.mq136);
-  json.set("mq3", reading.mq3);
   json.set("temperature", reading.temperature);
   json.set("humidity", reading.humidity);
   json.set("pressure", reading.pressure);
-  json.set("is_simulated", false);
+  json.set("bme_gas", reading.bmeGas);
+  json.set("pir", reading.pirMotion);
+  json.set("schemaVersion", 2);
   return json;
 }
 
@@ -269,10 +223,10 @@ bool publishReading(const SensorReading &reading) {
   FirebaseJson json = readingToJson(reading);
   const String path = String(FIREBASE_SENSOR_ROOT) + "/" + reading.deviceId;
   if (!Firebase.RTDB.pushJSON(&firebaseData, path.c_str(), &json)) {
-    Serial.printf("[firebase] Write failed: %s\n", firebaseData.errorReason().c_str());
+    Serial.printf("[firebase] Write failed: %s\\n", firebaseData.errorReason().c_str());
     return false;
   }
-  Serial.printf("[firebase] Published %s/%s sequence=%lu\n", path.c_str(),
+  Serial.printf("[firebase] Published %s/%s sequence=%lu\\n", path.c_str(),
                 firebaseData.pushName().c_str(),
                 static_cast<unsigned long>(reading.sequence));
   return true;
@@ -282,28 +236,24 @@ bool publishReading(const SensorReading &reading) {
 void setup() {
   Serial.begin(115200);
   delay(300);
-  Serial.println("\n[boot] AI odor sensor node starting");
+  Serial.println("\\n[boot] AI odor sensor node starting");
 
   if (!configurationLooksValid()) {
     Serial.println("[boot] Configuration invalid; device will not connect");
   }
 
   deviceId = buildDeviceId();
-  Serial.printf("[boot] Device ID: %s\n", deviceId.c_str());
+  Serial.printf("[boot] Device ID: %s\\n", deviceId.c_str());
 
-  analogReadResolution(12);
-  analogSetPinAttenuation(MQ135_PIN, ADC_11db);
-  analogSetPinAttenuation(MQ136_PIN, ADC_11db);
-  analogSetPinAttenuation(MQ3_PIN, ADC_11db);
-
+  pinMode(PIR_PIN, INPUT);
   initializeBme();
-  initializeGps();
+
   WiFi.mode(WIFI_STA);
+  WiFi.setAutoReconnect(true);
   connectWiFiIfNeeded();
 }
 
 void loop() {
-  serviceGps();
   connectWiFiIfNeeded();
 
   if (WiFi.status() == WL_CONNECTED) {
@@ -322,10 +272,10 @@ void loop() {
     lastSampleAt = now;
     SensorReading reading = collectReading();
     if (reading.valid) {
-      Serial.printf("[sensor] Sample sequence=%lu error_mask=0x%08lX location=%s\n",
+      Serial.printf("[sensor] Sample sequence=%lu error_mask=0x%08lX pir=%s\\n",
                     static_cast<unsigned long>(reading.sequence),
                     static_cast<unsigned long>(reading.errorMask),
-                    reading.gpsAvailable ? "gps" : "configured");
+                    reading.pirMotion ? "motion" : "clear");
       pendingReading = reading;
       hasPendingReading = true;
       if (publishReading(pendingReading)) {
