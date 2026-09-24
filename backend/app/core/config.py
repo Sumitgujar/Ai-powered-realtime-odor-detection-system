@@ -18,6 +18,7 @@ class Settings:
     predictions_path: str = "predictions"
     alerts_path: str = "alerts"
     ml_model_path: str | None = None
+    legacy_ml_model_path: str | None = None
     cors_origins: tuple[str, ...] = ("http://localhost:5173",)
     log_level: str = "INFO"
     app_name: str = "AI-Powered Real-Time Odor Detection API"
@@ -41,7 +42,10 @@ class Settings:
         predictions_path = os.getenv("FIREBASE_PREDICTIONS_PATH", "predictions").strip("/")
         alerts_path = os.getenv("FIREBASE_ALERTS_PATH", "alerts").strip("/")
         model_path_value = os.getenv(
-            "ML_MODEL_PATH", str(project_dir / "ml" / "models" / "odor_pipeline.joblib")
+            "ML_MODEL_PATH", str(project_dir / "ml" / "models" / "odor_pipeline_v2.joblib")
+        ).strip()
+        legacy_model_path_value = os.getenv(
+            "LEGACY_ML_MODEL_PATH", str(project_dir / "ml" / "models" / "odor_pipeline.joblib")
         ).strip()
         origins = tuple(
             origin.strip()
@@ -90,6 +94,7 @@ class Settings:
             predictions_path=predictions_path,
             alerts_path=alerts_path,
             ml_model_path=resolve_optional_path(model_path_value),
+            legacy_ml_model_path=resolve_optional_path(legacy_model_path_value),
             cors_origins=origins,
             log_level=log_level,
         )
