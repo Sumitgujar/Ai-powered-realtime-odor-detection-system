@@ -43,11 +43,6 @@
 #define BME680_PRIMARY_ADDRESS 0x76
 #define BME680_SECONDARY_ADDRESS 0x77
 
-// Static location retained only for compatibility with the existing Firebase
-// and FastAPI contract. No GPS hardware or GPS library is used.
-#define DEFAULT_LATITUDE 18.5204
-#define DEFAULT_LONGITUDE 73.8567
-
 // BME calibration: calibrated = raw * scale + offset.
 #define BME_GAS_SCALE 1.0f
 #define BME_GAS_OFFSET 0.0f
@@ -55,9 +50,3 @@
 #define HUMIDITY_OFFSET_PERCENT 0.0f
 #define PRESSURE_OFFSET_HPA 0.0f
 
-// The existing Firebase/FastAPI contract still requires mq136, mq3, latitude,
-// and longitude. These are compatibility values only; no MQ136, MQ3, or GPS
-// hardware is read by this firmware. Remove them only after the backend schema
-// is migrated in a later, explicitly approved change.
-#define LEGACY_MQ136_COMPAT_VALUE 0.0f
-#define LEGACY_MQ3_COMPAT_VALUE 0.0f

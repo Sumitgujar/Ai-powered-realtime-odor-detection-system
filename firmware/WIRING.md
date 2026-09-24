@@ -48,7 +48,7 @@ BME688 hardware may provide additional gas-scanner capabilities that this basic 
 
 D5/GPIO14 is used because it is separate from the I2C pins and is not one of the ESP8266 boot-strap pins. Confirm the PIR module's output is 3.3 V-safe. If the module produces 5 V logic, use level conditioning before D5.
 
-Allow the PIR module to complete its warm-up period before interpreting motion values. `pir_motion` is stored in Firebase, but the unchanged ML pipeline does not currently use it as a model feature.
+Allow the PIR module to complete its warm-up period before interpreting motion values. `pir` is stored in Firebase. The schema-v2 ML pipeline excludes PIR from odor features by default unless a trained artifact explicitly opts into it.
 
 ## MQ135 calibration
 

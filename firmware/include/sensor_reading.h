@@ -5,8 +5,6 @@
 struct SensorReading {
   String deviceId;
   String timestamp;
-  double latitude = 0.0;
-  double longitude = 0.0;
   float bmeGas = 0.0f;
   float mq135 = 0.0f;
   float temperature = 0.0f;

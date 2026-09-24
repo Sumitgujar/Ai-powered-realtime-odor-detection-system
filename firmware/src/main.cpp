@@ -141,8 +141,6 @@ SensorReading collectReading() {
   SensorReading reading;
   reading.deviceId = deviceId;
   reading.sequence = ++readingSequence;
-  reading.latitude = DEFAULT_LATITUDE;
-  reading.longitude = DEFAULT_LONGITUDE;
   reading.pirMotion = digitalRead(PIR_PIN) == (PIR_ACTIVE_HIGH ? HIGH : LOW);
 
   bool timestampValid = false;
@@ -200,22 +198,15 @@ void initializeFirebaseIfNeeded() {
 
 FirebaseJson readingToJson(const SensorReading &reading) {
   FirebaseJson json;
-  json.set("device_id", reading.deviceId);
+  json.set("deviceId", reading.deviceId);
   json.set("timestamp", reading.timestamp);
-  json.set("latitude", reading.latitude);
-  json.set("longitude", reading.longitude);
-  json.set("bme_gas", reading.bmeGas);
   json.set("mq135", reading.mq135);
   json.set("temperature", reading.temperature);
   json.set("humidity", reading.humidity);
   json.set("pressure", reading.pressure);
-  json.set("pir_motion", reading.pirMotion);
-  json.set("is_simulated", false);
-
-  // Compatibility fields required by the unchanged Firebase/FastAPI schema.
-  // These are not measurements and are deliberately not read from hardware.
-  json.set("mq136", LEGACY_MQ136_COMPAT_VALUE);
-  json.set("mq3", LEGACY_MQ3_COMPAT_VALUE);
+  json.set("bme_gas", reading.bmeGas);
+  json.set("pir", reading.pirMotion);
+  json.set("schemaVersion", 2);
   return json;
 }
 
