@@ -82,7 +82,7 @@ The artifact records `schemaVersion`, exact feature ordering, whether BME gas wa
 
 Use `src.new_prediction.NewOdorPredictor` with `odor_pipeline_v2.joblib`. It rejects schema-v1 payloads and does not fill missing removed-sensor fields.
 
-The existing `src.prediction.OdorPredictor` remains the legacy predictor until FastAPI is explicitly migrated in a later change.
+FastAPI routes schema-v2 payloads to `NewOdorPredictor` and historical schema-v1 payloads to the legacy `OdorPredictor`; it rejects requests when the matching artifact is unavailable.
 
 ## Retraining requirement
 
